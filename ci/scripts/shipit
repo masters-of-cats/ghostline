@@ -18,22 +18,13 @@ cd gr-release-develop
 git config --global user.email "ci@localhost"
 git config --global user.name "CI Bot"
 
-RELEASE_YML=$PWD/releases/garden-runc/garden-runc-${GARDEN_VERSION}.yml
 tarball_name="garden-runc-${GARDEN_VERSION}.tgz"
 tarball_path="$base/final-release/${tarball_name}"
 
-echo "this is a ghost release, do not use for actual boshness" > "${tarball_name%.*}"
-
-if [ -e "$RELEASE_YML" ]; then
-  echo "release already created; making tarball..."
-  tar czf "$tarball_name" "${tarball_name%.*}"
-  mv "$tarball_name" "$(dirname "$tarball_path")"
-else
-  echo "finalizing release"
-  mv "${CANDIDATE_DIR}"/garden-runc-*.tgz "$(dirname "$tarball_path")"
-  git add -A
-  git commit -m "release v${GARDEN_VERSION}"
-fi
+echo "finalizing release"
+mv "${CANDIDATE_DIR}"/garden-runc-*.tgz "$tarball_path"
+git add -A
+git commit -m "release v${GARDEN_VERSION}"
 
 cp -r . ../release/master
 )
