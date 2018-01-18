@@ -1,0 +1,167 @@
+jobs:
+  - name: bump-rc
+    serial: true
+    plan:
+    - do:
+      - aggregate:
+        - get: gr-release-develop
+          trigger: true
+          params:
+            submodules: none
+        - get: gr-version
+          params: {pre: rc}
+      - put: gr-version
+        params: {file: gr-version/number}
+
+  - name: create-candidate
+    serial: true
+    serial_groups: [serial-group]
+    plan:
+    - do:
+      - aggregate:
+        - get: gr-release-develop
+          trigger: true
+          passed:
+            - bump-rc
+        - get: gr-version
+          trigger: true
+          passed:
+            - bump-rc
+      - task: create-release
+        file: gr-release-develop/ci/create-release.yml
+      - aggregate:
+          - put: gr-candidate-tarball
+            params:
+              from: bosh-release/garden-runc-([^/]*).tgz
+              to: releases/
+
+  - name: garden-deploy
+    serial: true
+    serial_groups: [serial-group]
+    plan:
+    - do:
+      - aggregate:
+        - get: gr-release-develop
+          trigger: true
+          passed:
+            - create-candidate
+        - get: gr-version
+          trigger: true
+          passed:
+            - create-candidate
+        - get: gr-candidate-tarball
+          passed:
+            - create-candidate
+
+  - name: gats
+    serial_groups: [serial-group]
+    plan:
+    - do:
+      - aggregate:
+        - get: gr-candidate-tarball
+          passed: [garden-deploy]
+        - get: gr-version
+          passed: [garden-deploy]
+          trigger: true
+        - get: gr-release-develop
+          trigger: true
+          passed: [garden-deploy]
+
+  - name: shipit
+    serial: true
+    plan:
+    - do:
+      - aggregate:
+        - get: gr-release-develop # for build scripts
+          params:
+            fetch: [master]
+            submodules: none
+          passed: [gats]
+        - get: gr-version
+          params: {bump: final}
+        - get: gr-candidate-tarball
+          passed:
+          - gats
+          passed: [gats]
+      - task: shipit
+        file: gr-release-develop/ci/shipit.yml
+      - aggregate:
+        - put: gr-version
+          params: {file: gr-version/number}
+        - put: gr-release-tarball
+          params:
+            from: final-release/garden-runc-([^/]*).tgz
+            to: releases/
+        - put: github-release
+          params:
+            name: gr-version/number
+            tag: gr-version/number
+            tag_prefix: v
+            globs:
+              - github-release/gdn-*
+
+  - name: bump-patch-version
+    serial: true
+    plan:
+    - aggregate:
+      - get: gr-version
+        trigger: true
+        passed: [shipit]
+        params: {bump: patch, pre: rc}
+    - put: gr-version
+      params: {file: gr-version/number}
+
+  - name: bump-minor-version
+    serial: true
+    plan:
+    - get: gr-version
+      params: {bump: minor, pre: rc}
+    - put: gr-version
+      params: {file: gr-version/number}
+
+  - name: bump-major-version
+    serial: true
+    plan:
+    - get: gr-version
+      params: {bump: major, pre: rc}
+    - put: gr-version
+      params: {file: gr-version/number}
+
+resources:
+  - name: gr-release-develop
+    type: git
+    source:
+      uri: {{github-repo-uri}}
+      branch: develop
+
+  - name: github-release
+    type: github-release
+    source:
+      user: {{github-release-username}}
+      repository: {{github-release-repo-name}}
+      access_token: {{github-access-token}}
+      drafts: true
+
+  - name: gr-version
+    type: semver
+    source:
+      bucket: {{release-s3-bucket}}
+      key: releases/current-version
+      access_key_id: {{aws-access-key-id}}
+      secret_access_key: {{aws-secret-access-key}}
+
+  - name: gr-candidate-tarball
+    type: s3
+    source:
+      bucket: {{candidate-s3-bucket}}
+      regexp: releases/garden-runc-(.*).tgz
+      access_key_id: {{aws-access-key-id}}
+      secret_access_key: {{aws-secret-access-key}}
+
+  - name: gr-release-tarball
+    type: s3
+    source:
+      bucket: {{release-s3-bucket}}
+      regexp: releases/garden-runc-(.*).tgz
+      access_key_id: {{aws-access-key-id}}
+      secret_access_key: {{aws-secret-access-key}}

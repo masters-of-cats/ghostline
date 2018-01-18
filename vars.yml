@@ -1,0 +1,12 @@
+# Github
+github-release-username: masters-of-cats
+github-release-repo-name: ghostline
+
+# Git repositories
+github-repo-uri: https://github.com/masters-of-cats/ghostline.git
+
+# Guardian candidate
+candidate-s3-bucket: ghostline-candidates
+
+# Guardian release
+release-s3-bucket: ghostline-tarballs
