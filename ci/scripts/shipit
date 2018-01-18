@@ -23,6 +23,8 @@ tarball_path="$base/final-release/${tarball_name}"
 
 echo "finalizing release"
 mv "${CANDIDATE_DIR}"/garden-runc-*.tgz "$tarball_path"
+
+echo "something to commit" > changes
 git add -A
 git commit -m "release v${GARDEN_VERSION}"
 
