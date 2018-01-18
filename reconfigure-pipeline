@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+lpass_note() {
+  lpass show --"${2:-notes}" "Shared-Garden/$1"
+}
+
+if ! which lpass > /dev/null 2>&1 ; then
+  echo "Please install Lastpass CLI"
+  exit 1
+fi
+
+base=$(pwd)
+
+if [ -z "${1:-}" ]; then
+  echo "No target passed, using 'lite'"
+  FLYRC_TARGET="lite"
+else
+  FLYRC_TARGET=$1
+fi
+
+if ! grep "$FLYRC_TARGET" ~/.flyrc > /dev/null 2>&1 ; then
+  echo "Please ensure $FLYRC_TARGET exists in ~/.flyrc and that you have run fly login"
+  exit 1
+fi
+
+# We want this script to exit with error if the lastpass note doesn not exist,
+# rather than silently interpolate an empty string into the pipeline vars!
+# Assigning the subshell stdout to a variable preserves the expected semantics
+# of errexit, as these assignments are "simple commands" rather than
+# substitutions.
+# This is a giant gotcha with shell scripts!
+# http://pubs.opengroup.org/onlinepubs/009695399/utilities/xcu_chap02.html#tag_02_09_01
+github_access_token=$(lpass_note 'MCATS API Token')
+aws_access_key_id=$(lpass_note 'CI AWS S3 bucket' username)
+aws_secret_access_key=$(lpass_note 'CI AWS S3 bucket' password)
+
+echo "setting main pipeline"
+fly --target="$FLYRC_TARGET" set-pipeline --pipeline=main \
+  --config="$base"/pipeline.yml \
+  --load-vars-from="$base"/vars.yml \
+  --var github-access-token="$github_access_token" \
+  --var aws-access-key-id="$aws_access_key_id" \
+  --var aws-secret-access-key="$aws_secret_access_key"
+
+fly --target="$FLYRC_TARGET" expose-pipeline --pipeline=main

@@ -1,0 +1,167 @@
+jobs:
+  - name: bump-rc
+    serial: true
+    plan:
+    - do:
+      - aggregate:
+        - get: github-repo-develop
+          trigger: true
+          params:
+            submodules: none
+        - get: release-version
+          params: {pre: rc}
+      - put: release-version
+        params: {file: release-version/number}
+
+  - name: create-candidate
+    serial: true
+    serial_groups: [-serial-group]
+    plan:
+    - do:
+      - aggregate:
+        - get: github-repo-develop
+          trigger: true
+          passed:
+            - bump-rc
+        - get: release-version
+          trigger: true
+          passed:
+            - bump-rc
+      - task: create-release
+        file: github-repo-develop/ci/create-release.yml
+      - aggregate:
+          - put: candidate-tarball
+            params:
+              from: bosh-release/garden-runc-([^/]*).tgz
+              to: releases/
+
+  - name: garden-deploy
+    serial: true
+    serial_groups: [-serial-group]
+    plan:
+    - do:
+      - aggregate:
+        - get: github-repo-develop
+          trigger: true
+          passed:
+            - create-candidate
+        - get: release-version
+          trigger: true
+          passed:
+            - create-candidate
+        - get: candidate-tarball
+          passed:
+            - create-candidate
+
+  - name: gats
+    serial_groups: [-serial-group]
+    plan:
+    - do:
+      - aggregate:
+        - get: candidate-tarball
+          passed: [garden-deploy]
+        - get: release-version
+          passed: [garden-deploy]
+          trigger: true
+        - get: github-repo-develop
+          trigger: true
+          passed: [garden-deploy]
+
+  - name: shipit
+    serial: true
+    plan:
+    - do:
+      - aggregate:
+        - get: github-repo-develop # for build scripts
+          params:
+            fetch: [master]
+            submodules: none
+          passed: [gats]
+        - get: release-version
+          params: {bump: final}
+        - get: candidate-tarball
+          passed:
+          - gats
+          passed: [gats]
+      - task: shipit
+        file: github-repo-develop/ci/shipit.yml
+      - aggregate:
+        - put: release-version
+          params: {file: release-version/number}
+        - put: release-tarball
+          params:
+            from: final-release/garden-runc-([^/]*).tgz
+            to: releases/
+        - put: github-release
+          params:
+            name: release-version/number
+            tag: release-version/number
+            tag_prefix: v
+            globs:
+              - github-release/gdn-*
+
+  - name: bump-patch-version
+    serial: true
+    plan:
+    - aggregate:
+      - get: release-version
+        trigger: true
+        passed: [shipit]
+        params: {bump: patch, pre: rc}
+    - put: release-version
+      params: {file: release-version/number}
+
+  - name: bump-minor-version
+    serial: true
+    plan:
+    - get: release-version
+      params: {bump: minor, pre: rc}
+    - put: release-version
+      params: {file: release-version/number}
+
+  - name: bump-major-version
+    serial: true
+    plan:
+    - get: release-version
+      params: {bump: major, pre: rc}
+    - put: release-version
+      params: {file: release-version/number}
+
+resources:
+  - name: github-repo-develop
+    type: git
+    source:
+      uri: {{github-repo-uri}}
+      branch: develop
+
+  - name: github-release
+    type: github-release
+    source:
+      user: {{github-release-username}}
+      repository: {{github-release-repo-name}}
+      access_token: {{github-access-token}}
+      drafts: true
+
+  - name: release-version
+    type: semver
+    source:
+      bucket: {{release-s3-bucket}}
+      key: releases/current-version
+      access_key_id: {{aws-access-key-id}}
+      secret_access_key: {{aws-secret-access-key}}
+
+  - name: candidate-tarball
+    type: s3
+    source:
+      bucket: {{candidate-s3-bucket}}
+      regexp: releases/garden-runc-(.*).tgz
+      access_key_id: {{aws-access-key-id}}
+      secret_access_key: {{aws-secret-access-key}}
+
+  - name: release-tarball
+    type: s3
+    source:
+      bucket: {{release-s3-bucket}}
+      regexp: releases/garden-runc-(.*).tgz
+      access_key_id: {{aws-access-key-id}}
+      secret_access_key: {{aws-secret-access-key}}
